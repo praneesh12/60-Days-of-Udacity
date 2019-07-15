@@ -1,0 +1,149 @@
+---
+title: "SpringHealth_Take_Home_Assessment"
+submission : "Praneesh Khanna"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(knitr)
+library(data.table)
+library(styler)
+library(dplyr)
+```
+
+## Read data
+
+```{r , echo=FALSE}
+dt = read.csv("~/Desktop/personal/DataScience/InterviewPrep/60-Days-of-Udacity/Take_home_tests/SpringHealth/spring_health_take_home_df.csv", na.strings = 'N/A')
+
+```
+
+## Q1 How many individuals used our platform
+
+```{r}
+unique_ind = length(unique(dt$member_id_hashed))
+print(paste0('Number of unique individuals on platform ',unique_ind))
+
+```
+
+
+## Q2 What is the average number of times that a member interacts with the platform
+
+```{r}
+
+avg_int=  dt %>%
+  group_by(member_id_hashed) %>%
+  summarise(mem_count = n()) %>%
+  summarise(avg_int = mean(mem_count))
+  
+print(paste0('On average a member interacts ', round(avg_int,3), ' ~3 times'))
+
+```
+
+
+## Q3 What is the distribution of baseline PHQ9 total scores for members on the platform.
+### Q3a Please include a visualization
+
+```{r}
+table(dt$PHQ9_score)
+
+hist(dt$PHQ9_score,
+     main = "Distribution of PHQ9 scores for members on the platform",
+     xlab = "PHQ9 Scores"
+     )
+```
+
+
+### Q3b Please calculate summary statistics
+```{r}
+summary(dt$PHQ9_score)
+```
+
+## Q4 What is the average change in total PHQ9 score for members using the platform
+```{r}
+avg_change = as.data.table(dt)[questionnaire_kind=='PHQ9',mean(abs(diff(PHQ9_score)))]
+print(paste0('Average change in total PHQ9 scores ', round(avg_change,3)))
+```
+
+## Q5 What is the average change in total PHQ9 score for depressed individuals using the platform
+```{r}
+dep_ind = as.data.table(dt)[(PHQ9_positive==TRUE)&(questionnaire_kind=='PHQ9'),mean(abs(diff(PHQ9_score)))]
+print(paste0('Average change in total PHQ9 scores for depressed individuals ', round(dep_ind,3)))
+```
+
+
+## Q6 What is the average change in total workplace productivity (SDS_days_unproductive) for members interacting with the platform
+```{r}
+change_prod = as.data.table(dt)[(questionnaire_kind=='SDS'),mean(abs(diff(SDS_days_unproductive)), na.rm=T)]
+print(paste0('Average change in total workplace productivity ', round(change_prod,3)))
+```
+
+
+## Q7 A core goal of treating depression is to improve function (e.g. SDS_days_unproductive) as well as symptoms (e.g. PHQ9_score).
+###    Q7a Please explore and explain the relationship between symptomatic improvement and functional improvement amongst members who            interacted with the Spring platform.
+
+```{r}
+sds_change = as.data.table(dt)[order(assessment_created_at) & questionnaire_kind=='SDS', 
+                  list(change_sds = SDS_days_unproductive[1] - tail(SDS_days_unproductive, n=1)),
+                  by=member_id_hashed][, mean(change_sds, na.rm = T), by = member_id_hashed]
+
+print('Summary statistics for changes in SDS_days_unproductive')
+summary(sds_change)
+hist(sds_change$V1,
+     main = "Distribution of delta change in SDS_days_unproductive for members after joining the platform",
+     xlab = "PHQ9 Scores")
+
+phq9_change = as.data.table(dt)[order(assessment_created_at, decreasing = F) & questionnaire_kind=='PHQ9', 
+                  list(change_sds = PHQ9_score[1] - tail(PHQ9_score, n=1)),
+                  by=member_id_hashed][, mean(change_sds, na.rm = T), by = member_id_hashed]
+
+print('Summary statistics for changes in PHQ9_score')
+summary(phq9_change)
+hist(phq9_change$V1,
+     main = "Distribution of delta change in PHQ9 scores for members after joining the platform",
+     xlab = "PHQ9 Scores")
+```
+
+```{r}
+sds_dt = as.data.table(dt)[questionnaire_kind=='SDS',c("member_id_hashed", "assessment_created_at", "SDS_days_missed", "SDS_work_impact", "SDS_home_life_impact", "SDS_days_unproductive", "SDS_social_life_impact", "SDS_risk", "SDS_positive"), with=FALSE ]
+
+
+phq9_dt = as.data.table(dt)[questionnaire_kind=='PHQ9',c("member_id_hashed", "assessment_created_at",
+                                                         "PHQ9_q1", "PHQ9_q2", "PHQ9_q3", "PHQ9_q4",   "PHQ9_q5","PHQ9_q6", "PHQ9_q7","PHQ9_q8","PHQ9_q9","PHQ9_q10",                
+              "PHQ9_risk","PHQ9_score","PHQ9_acuity", "PHQ9_positive"), with=FALSE ]
+
+# Data is unique on member_id and assessment_created_at level
+merged_dt = merge(sds_dt, phq9_dt, all.x = T, all.y=T)
+
+# Members who have taken assessment more than once
+freq_members = 
+  merged_dt[(is.finite(PHQ9_score)) & (is.finite(SDS_days_unproductive)) & member_id_hashed %in% merged_dt[(is.finite(PHQ9_score)) &   (is.finite(SDS_days_unproductive)), .N, by=.(member_id_hashed)][N>1]$member_id_hashed]
+
+
+overall = freq_members[order(assessment_created_at, member_id_hashed, decreasing = TRUE),
+                           list(overall_change_phq9 = PHQ9_score[1]-tail(PHQ9_score, n=1),
+                                overall_change_sds = SDS_days_unproductive[1] - tail(SDS_days_unproductive, n=1)),
+                           by=(member_id_hashed)]
+
+print('Summary statistics for members who used platform more than once')
+print('Summary for SDS_days_unproductive')
+overall_freq = as.data.table(dt)[member_id_hashed %in% freq_members$member_id_hashed,]
+summary(overall_freq$SDS_days_unproductive)
+
+cat("\n\n")
+print('Summary for PHQ9_score')
+summary(overall_freq$PHQ9_score)
+```
+
+
+###    Q7b Do you think that members benefit from interacting with the Spring platform? Why?
+
+Members who frequented Spring Health platform had an average PHQ9_score higher than rest of the members as evident from the summary statistics above.
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
